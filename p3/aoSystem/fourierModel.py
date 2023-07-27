@@ -56,7 +56,8 @@ class fourierModel:
                  normalizePSD=False, displayContour=False, getPSDatNGSpositions=False,
                  getErrorBreakDown=False, getFWHM=False, getEnsquaredEnergy=False,
                  getEncircledEnergy=False, fftphasor=False, MV=0, nyquistSampling=False,
-                 addOtfPixel=False, computeFocalAnisoCov=True, TiltFilter=False):
+                 addOtfPixel=False, computeFocalAnisoCov=True, TiltFilter=False,
+                 LOasHO=False):
         
         tstart = time.time()
         
@@ -69,9 +70,10 @@ class fourierModel:
         self.calcPSF = calcPSF
         self.tag = 'TIPTOP'
         self.addOtfPixel = addOtfPixel
+        self.LOasHO = LOasHO
         
         # GRAB PARAMETERS
-        self.ao = aoSystem(path_ini,path_root=path_root,getPSDatNGSpositions=getPSDatNGSpositions)
+        self.ao = aoSystem(path_ini,path_root=path_root,getPSDatNGSpositions=getPSDatNGSpositions,LOasHO=LOasHO)
         self.t_initAO = 1000*(time.time() - tstart)
         
         if self.ao.error==False:
@@ -98,6 +100,8 @@ class fourierModel:
                 wDir_mod   = np.linspace(min(self.ao.atm.wDir),max(self.ao.atm.wDir),num=self.ao.dms.nRecLayers)
                 if self.ao.lgs:
                     self.strechFactor_mod = 1.0/(1.0 - heights_mod/self.gs.height[0])
+                else:
+                    self.strechFactor_mod = 1.0
             else:
                 weights_mod    = self.ao.atm.weights
                 heights_mod    = self.ao.atm.heights
@@ -482,7 +486,8 @@ class fourierModel:
                 
             # Aliasing
             self.psdAlias           = np.real(self.aliasingPSD())
-            psd[id1:id2,id1:id2,:]  = psd[id1:id2,id1:id2,:] + np.repeat(self.psdAlias[:, :, np.newaxis], self.ao.src.nSrc, axis=2)
+            if self.LOasHO == False:
+                psd[id1:id2,id1:id2,:]  = psd[id1:id2,id1:id2,:] + np.repeat(self.psdAlias[:, :, np.newaxis], self.ao.src.nSrc, axis=2)
             
             # Differential refractive anisoplanatism
             self.psdDiffRef         = self.differentialRefractionPSD()
@@ -509,22 +514,28 @@ class fourierModel:
                 
             # Fitting
             self.psdFit = np.real(self.fittingPSD())
-            psd += np.repeat(self.psdFit[:, :, np.newaxis], self.ao.src.nSrc, axis=2)
+            if self.LOasHO == False:
+                psd += np.repeat(self.psdFit[:, :, np.newaxis], self.ao.src.nSrc, axis=2)
             
-            # Tilt filter
-            if self.applyTiltFilter == True:
-                tiltFilter = self.TiltFilter()                      
+            if self.LOasHO  == True:
+                tiltFilter = self.TiltFilter(invert=True)                      
                 for i in range(self.ao.src.nSrc):
-                    psd[:,:,i] *= tiltFilter
-            
-            # Extra error
-            if self.verbose:
-                print('extra error in nm RMS: ',self.ao.tel.extraErrorNm)
-                print('extra error spatial frequency exponent: ',self.ao.tel.extraErrorExp)
-            if self.ao.tel.extraErrorNm > 0:
-                self.psdExtra = np.real(self.extraErrorPSD())
-                for i in range(self.ao.src.nSrc):
-                    psd[:,:,i] += self.psdExtra
+                    psd[:,:,i] *= tiltFilter           
+            else:            
+                # Tilt filter
+                if self.applyTiltFilter == True:
+                    tiltFilter = self.TiltFilter()                      
+                    for i in range(self.ao.src.nSrc):
+                        psd[:,:,i] *= tiltFilter
+
+                # Extra error
+                if self.verbose:
+                    print('extra error in nm RMS: ',self.ao.tel.extraErrorNm)
+                    print('extra error spatial frequency exponent: ',self.ao.tel.extraErrorExp)
+                if self.ao.tel.extraErrorNm > 0:
+                    self.psdExtra = np.real(self.extraErrorPSD())
+                    for i in range(self.ao.src.nSrc):
+                        psd[:,:,i] += self.psdExtra
             
         self.t_powerSpectrumDensity = 1000*(time.time() - tstart)
             
@@ -807,8 +818,8 @@ class fourierModel:
         if self.verbose:
             print('h_laser',h_laser)
             print('h',h)
-            print('nf0',nf0)
             print('ratio',ratio)
+            print('nf0',nf0)
         
         for j in range(nCn2):
             for i in range(nf0):
@@ -860,7 +871,7 @@ class fourierModel:
     
         return np.real(psd)
     
-    def TiltFilter(self):
+    def TiltFilter(self,invert=False):
         """%% Spatial filter to remove tilt related errors
         """
         
@@ -885,7 +896,10 @@ class fourierModel:
                     sin_temp = coeff_lin[0]*x+coeff_lin[1]
                     sin_res = sin_ref - sin_temp
                     coeff[i] += np.std(sin_res) / np.std(sin_ref) * 1/nPhase
-               
+        if invert:
+            coeff = 1-coeff
+            coeff[np.where(coeff<0)] = 0
+            
         coeff_tot = np.interp(np.sqrt(self.freq.k2_), freqs, coeff)**2
         
         #fig, ax1 = plt.subplots(1,1)

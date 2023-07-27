@@ -211,7 +211,10 @@ class frequencyDomain():
         # compute th Cn2 profile in m^(-5/3)
         Cn2 = self.ao.atm.weights * self.ao.atm.r0**(-5/3)
 
-        if self.ao.aoMode == 'SCAO' or computeFocalAnisoCov == False:
+        if computeFocalAnisoCov == False:
+            self.isAniso = False
+            return None
+        elif self.ao.aoMode == 'SCAO':
             # NGS case : angular-anisoplanatism only
             if np.all(self.ao.src.direction == self.ao.ngs.direction):
                 self.isAniso = False

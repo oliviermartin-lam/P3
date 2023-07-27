@@ -61,7 +61,7 @@ class deformableMirror:
 
         # optimization
         self.opt_dir      = np.array(opt_dir)
-        self.opt_weights  = opt_weights
+        self.opt_weights  = opt_weights / np.sum(opt_weights)
         if (len(self.opt_dir[0]) != len(self.opt_weights)):
             raise ValueError("Please define as many weights as optimization directions.")
         
